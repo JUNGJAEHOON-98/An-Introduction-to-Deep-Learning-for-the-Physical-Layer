@@ -15,7 +15,8 @@ class Channel():
         - channel_output: n-dimensional channel output vector
     """
 
-    def __init__(self, rate, input_signal, Eb_N0) -> None:
+    def __init__(self, input_signal, rate, Eb_N0) -> None:
+        super(Channel, self).__init__()
         self.rate = rate
         self.Eb_N0 = Eb_N0
         self.input_signal = input_signal

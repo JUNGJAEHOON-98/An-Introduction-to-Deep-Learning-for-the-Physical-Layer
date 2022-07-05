@@ -5,9 +5,9 @@ from keras.layers import Input, Dense
 from keras.layers.normalization import BatchNormalization
 from tensorflow.keras.utils import to_categorical
 
-class transmitter():
+class Transmitter():
     """
-    Converts the transmitted symbols to n-dimensional normalized vector (n: # of channel)
+    Converts the transmitted symbols to n-dimensional normalized transmitted vector (n: # of channel)
 
     Inputs:
         - input_signal: transmitted symbols(vector s)
@@ -18,12 +18,12 @@ class transmitter():
         - output: n-dimensional normalized vector
     """
 
-    def __init__(self, input_signal, input_size, num_channels):
-        super(transmitter, self).__init__()
+    def __init__(self, input_signal, input_dim, num_channels):
+        super(Transmitter, self).__init__()
         self.input_signal = input_signal
-        self.input_size = input_size
+        self.input_dim = input_dim
         self.num_channels = num_channels
-        self.dense1 = Dense(self.input_size, activation='relu')
+        self.dense1 = Dense(self.input_dim, activation='relu')
         self.dense2 = Dense(self.num_channels, activation='linear')
         self.layernorm = BatchNormalization()
         
