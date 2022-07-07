@@ -1,6 +1,7 @@
 from keras.layers import Dense
+from keras.models import Model
 
-class Receiver():
+class Receiver(Model):
     """
     Converts the channel_output vector to decoded vector 
 
@@ -13,15 +14,13 @@ class Receiver():
                   probability distribution over all possible messages from which the most likely is picked as output
     """
 
-    def __init__(self, input_signal, input_dim) -> None:
+    def __init__(self, input_dim) -> None:
         super(Receiver, self).__init__()
-        self.input_signal = input_signal
-        self.input_dim = input_dim
-        self.dense1 = Dense(self.input_dim, activation='relu')
-        self.dense2 = Dense(self.input_dim, activation='softmax')
+        self.dense1 = Dense(input_dim, activation='relu')
+        self.dense2 = Dense(input_dim, activation='softmax')
 
-    def forward(self):
-        output = self.dense1(self.input_signal)
+    def forward(self, inputs):
+        output = self.dense1(inputs)
         output = self.dense2(output)
 
         return output  
