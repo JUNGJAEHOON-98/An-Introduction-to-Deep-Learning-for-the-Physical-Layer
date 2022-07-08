@@ -1,120 +1,167 @@
 # importing libs
 import numpy as np
 import tensorflow as tf
-from keras.layers import Input, Dense, GaussianNoise
-from keras.models import Model
-from keras import regularizers, Sequential
-from keras.layers import BatchNormalization
-from keras.optimizers import SGD
 from tensorflow.keras.utils import to_categorical
-from keras.models import Model
-import random as rn
+from autoencoder import AutoEncoder
+import matplotlib.ticker as mticker
+import matplotlib.pyplot as plt
+from tqdm import tqdm
+# from keras.optimizers import SGD
 
 
-# defining parameters
+# defining system parameters
 M = 16 
-k = np.log2(M)
-k = int(k)
-print ('M:',M,'k:',k)
-
-#generating data of size N
-N = 20000
-train_data = np.random.randint(M,size=N)
-train_label = to_categorical(train_data)
-#train_data = to_categorical(label) # convert one-hot vector (ndarray)
-
-N_val = 5000
-val_data = np.random.randint(M,size=N_val)
-val_label = to_categorical(val_data)
-
+k = int(np.log2(M))
 rate = 4/7
 n_channel = 7
 EbNo_train = 5.01187 #  coverted 7 db of EbNo
-print (int(k/rate))
 
-class AutoEncoder(Model):
-    def __init__(self, M, num_channels,  rate, Eb_N0):
-        super(AutoEncoder, self).__init__()
-        self.variance = np.sqrt(1/(2*rate*Eb_N0))
+print('-----------SYSTEM PARAMETER-------------')
+print ('M:', M)
+print ('k', k)
+print('Rate:', rate)
+print('Number of channel use:', n_channel)
+print('Eb_No[dB]',)
+print('---------------------------------------\n')
 
-        self.encoder = Sequential([
-            Dense(M, activation='relu', name="encoder_layer1"),
-            Dense(num_channels, activation='linear', name="encoder_layer2"),
-            BatchNormalization()  
-        ])
+# defining training parameters 
+epochs = 1
+batch_size = 20
+N_train = 10000
+N_val = 5000
 
-        self.channel = GaussianNoise(self.variance)
+optimizer = tf.keras.optimizers.Adam() # optimizer = SGD()
+loss_fn = tf.keras.losses.CategoricalCrossentropy()
 
-        self.decoder = Sequential([
-            Dense(M, activation='relu', name="decoder_layer1"),
-            Dense(M, activation='softmax', name="decoder_layer2")
-        ])
+print('----------TRAINING PARAMETER------------')
+print ('epochs:', epochs)
+print ('batch_size', batch_size)
+print('Optimizer:', 'Adam')
+print('Loss function:', 'CategoricalCrossentropy')
+print('---------------------------------------\n\n')
 
-    def call(self, inputs):
-        one_hat_vector = to_categorical(inputs)
-        transmitted_signal = self.encoder(one_hat_vector)
-        channel_output = self.channel(transmitted_signal)
-        output = self.decoder(channel_output)
+#generating data of size N
 
-        return output
-        
+train_data = np.random.randint(M, size=N_train)
+train_label = to_categorical(train_data)
+train_data = tf.data.Dataset.from_tensor_slices((train_data, train_label)).batch(batch_size)
+
+val_data = np.random.randint(M, size=N_val)
+val_label = to_categorical(val_data)
 
 
 autoencoder = AutoEncoder(M, n_channel, rate, EbNo_train)
 
-optimizer = tf.keras.optimizers.Adam()
-loss = tf.keras.losses.CategoricalCrossentropy()
+train_loss_metrics = tf.keras.metrics.Mean()
+train_acc_metrics = tf.keras.metrics.CategoricalAccuracy()
+
+val_loss_metrics = tf.keras.metrics.Mean()
+val_acc_metrics = tf.keras.metrics.CategoricalAccuracy()
 
 
-train_loss = tf.keras.metrics.Mean()
-train_acc = tf.keras.metrics.CategoricalAccuracy()
-
-test_loss = tf.keras.metrics.Mean()
-test_acc = tf.keras.metrics.CategoricalAccuracy()
-
-# def train_step(data, label):
-#     for epoch_index in range(epochs):
-#         with tf.GradientTape() as tape:
-
-#             predictions = autoencoder(data)
-#             loss_value = loss(label, predictions)
-
-#         gradients = tape.gradient(loss_value, autoencoder.trainable_variables)
-#         optimizer.apply_gradients(zip(gradients, autoencoder.trainable_variables))
-#         print('epoch: {}/{}: loss: {:.4f}'.format(epoch_index + 1, epochs, loss_value.numpy()))
-
-def train_step(data, label):
-
+def apply_gradient(model, optimizer, loss_fn, x, y):
     with tf.GradientTape() as tape:
-
-        predictions = autoencoder(data)
-        loss_value = loss(label, predictions)
-
-    gradients = tape.gradient(loss_value, autoencoder.trainable_variables)
-    optimizer.apply_gradients(zip(gradients, autoencoder.trainable_variables))
-
-    train_loss(loss_value)
-    train_acc(label, predictions)
+        predictions = autoencoder(x)
+        loss_value = loss_fn(y, predictions)
+    gradients = tape.gradient(loss_value, model.trainable_weights)
+    optimizer.apply_gradients(zip(gradients, model.trainable_weights))
+ 
+    return predictions, loss_value
 
 
+def train_for_one_epoch(train_data, model, optimizer, loss_fn, train_acc_metrics):
 
-def test_step(data, label):
+    one_epoch_loss = []
+    one_epoch_acc = []
 
-    predictions = autoencoder(data)
-    loss_value = loss(label, predictions)
-    test_loss(loss_value)
-    test_acc(label, predictions)
+    for epoch, (x_batch, y_batch) in enumerate(train_data):
+        predictions, loss_value = apply_gradient(model, optimizer, loss_fn, x_batch, y_batch)       
+       
+ 
+        one_epoch_loss.append(train_loss_metrics(loss_value))
+        one_epoch_acc.append(train_acc_metrics(y_batch, predictions))
 
-epochs = 1000 
+    return np.mean(one_epoch_loss), np.mean(one_epoch_acc)
+
     
-for epoch in range(epochs):
 
-    train_step(train_data, train_label)
-    test_step(val_data, val_label)
-    template = 'epoch: {}, train_loss: {:.5f}, train_acc: {:.2f}%, test_loss: {:.5f}, test_acc: {:.2f}%'
-    if epoch % 9 == 0: 
-        print (template.format(epoch+1,
-                            train_loss.result(),
-                            train_acc.result()*100,
-                            test_loss.result(),
-                            test_acc.result()*100))
+def perform_validation(test_data, test_label, model, loss_fn, valid_acc_metrics):   
+    predictions = model(test_data)
+
+    loss_value = loss_fn(test_label, predictions)
+    acc_value = valid_acc_metrics(test_label, predictions)
+
+    return loss_value, acc_value
+    
+
+val_losses, train_losses = [], []
+
+for epoch in range(epochs):
+    print(f'Start of epoch {epoch+1}')
+  
+    train_loss, train_acc = train_for_one_epoch(train_data, autoencoder, optimizer, loss_fn, train_acc_metrics)
+    val_loss, val_acc = perform_validation(val_data, val_label, autoencoder, loss_fn, val_acc_metrics)
+  
+    template = 'epoch: {}, train_loss: {:.5f}, train_acc: {:.2f}%, val_loss: {:.5f}, val_acc: {:.2f}%'
+
+    print (template.format(epoch+1,
+                        train_loss,
+                        train_acc*100,
+                        val_loss,
+                        val_acc*100))
+
+    train_losses.append(train_loss_metrics.result())
+    val_losses.append(val_loss_metrics.result())
+
+
+def plot_metrics(train_metric, valid_metric, title):
+    plt.title(title)
+    plt.gca().xaxis.set_major_locator(mticker.MultipleLocator(1))
+    plt.plot(train_metric, color='red', label="train_loss")
+    plt.plot(valid_metric, color='blue', label= "val_loss")
+    plt.legend()
+ 
+plot_metrics(train_losses, val_losses, "Loss Value")
+
+N = 45000
+test_label = np.random.randint(M,size=N)
+test_data = []
+
+for i in test_label:
+    temp = np.zeros(M)
+    temp[i] = 1
+    test_data.append(temp)
+    
+test_data = np.array(test_data)
+
+def frange(x, y, jump):
+    while x < y:
+        yield x
+        x += jump
+
+EbNodB_range = list(frange(-4,8.5,0.5))
+ber = [None]*len(EbNodB_range)
+for n in range(0,len(EbNodB_range)):
+    EbNo=10.0**(EbNodB_range[n]/10.0)
+    noise_std = np.sqrt(1/(2*rate*EbNo))
+    noise_mean = 0
+    no_errors = 0
+    nn = N
+    noise = noise_std * np.random.randn(nn,n_channel)
+    encoded_signal = autoencoder.encoder.predict(test_data) 
+    final_signal = encoded_signal + noise
+    pred_final_signal =  autoencoder.decoder.predict(final_signal)
+    pred_output = np.argmax(pred_final_signal,axis=1)
+    no_errors = (pred_output != test_label)
+    no_errors =  no_errors.astype(int).sum()
+    ber[n] = no_errors / nn 
+    print ('SNR:',EbNodB_range[n],'BER:',ber[n])
+
+plt.plot(EbNodB_range, ber, 'bo',label='Autoencoder(7,4)')
+#plt.plot(list(EbNodB_range), ber_theory, 'ro-',label='BPSK BER')
+plt.yscale('log')
+plt.xlabel('SNR Range')
+plt.ylabel('Block Error Rate')
+plt.grid()
+plt.legend(loc='upper right',ncol = 1)
+plt.savefig('AutoEncoder_7_4_BER_matplotlib')
